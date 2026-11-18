@@ -2,7 +2,8 @@
 TICKET_PRICES = {
     "Standard": {"adult": 10, "child": 5},
     "VIP": {"adult": 20, "child": 12},
-    "Family Bundle": {"adult": 25, "child": 10}
+    # Lower per-person prices for eligible family groups
+    "Family Bundle": {"adult": 8, "child": 4}
 }
 
 PEAK_MULTIPLIERS = {
@@ -10,10 +11,9 @@ PEAK_MULTIPLIERS = {
     "Peak (Weekend/Holiday)": 1.25
 }
 
-
 def calculate_base_price(adult_count, child_count, tier, peak_type):
     """Calculates base price based on tier, quantities, and peak/off-peak rates."""
-    prices = TICKET_PRICES.get(tier, {"adult": 10, "child": 5})
+    prices = TICKET_PRICES.get(tier, TICKET_PRICES["Standard"])
     multiplier = PEAK_MULTIPLIERS.get(peak_type, 1.0)
     adult_total = adult_count * prices["adult"] * multiplier
     child_total = child_count * prices["child"] * multiplier
@@ -34,17 +34,16 @@ def calculate_add_ons(selected_addons, visitors):
     "Calculates total cost of add_ons."
     addon_total = 0
     breakdown = {}
-    
+
     for x in selected_addons:
         if x in ADD_ONS:
             item = ADD_ONS[x]
             if item["per_person"]:
-                cost = item["price"] * visitors 
+                cost = item["price"] * visitors
             else:
                 cost = item["price"]
             addon_total += cost
             breakdown[x] = cost
-            
     return {
         "breakdown": breakdown,
         "addon_total": addon_total
@@ -82,7 +81,9 @@ def calculate_discounts(subtotal, tier, peak_type, total_visitors, promo_code):
             discount_amount += promo_disc
             applied_perks.append(f"Promo '{code}' (-${promo_disc:.2f})")
         else:
-            applied_perks.append(f"Promo '{code}' requires ${promo['min_spend']} min spend")
+            applied_perks.append(
+                f"Promo '{code}' requires ${promo['min_spend']} min spend"
+            )
 
     discount_amount = min(discount_amount, subtotal)
     return {
@@ -90,8 +91,11 @@ def calculate_discounts(subtotal, tier, peak_type, total_visitors, promo_code):
         "applied_perks": applied_perks
     }
 
-def recommend_best_deal(adult_count, child_count, current_tier, peak_type, selected_addons, promo_code=""):
-    "Simulates all tiers to find the cheapest option or best value upgrade."
+def recommend_best_deal(
+    adult_count, child_count, current_tier,
+    peak_type, selected_addons, promo_code=""
+):
+    "Simulates all eligible tiers to find the cheapest option or best value upgrade."
     total_visitors = adult_count + child_count
     if total_visitors == 0:
         return "Add at least 1 visitor to see deal recommendations."
@@ -99,11 +103,34 @@ def recommend_best_deal(adult_count, child_count, current_tier, peak_type, selec
     tier_totals = {}
 
     for tier in TICKET_PRICES:
-        base = calculate_base_price(adult_count, child_count, tier, peak_type)["base_total"]
-        addons = calculate_add_ons(selected_addons, total_visitors)["addon_total"]
+        # Exclude the Family Bundle when the group does not qualify
+        if tier == "Family Bundle" and (
+            total_visitors < 4 or adult_count == 0 or child_count == 0
+        ):
+            continue
+
+        base = calculate_base_price(
+            adult_count, child_count, tier, peak_type
+        )["base_total"]
+
+        addons = calculate_add_ons(
+            selected_addons, total_visitors
+        )["addon_total"]
+
         subtotal = base + addons
-        discount = calculate_discounts(subtotal, tier, peak_type, total_visitors, promo_code)["discount_amount"]
+
+        discount = calculate_discounts(
+            subtotal, tier, peak_type, total_visitors, promo_code
+        )["discount_amount"]
+
         tier_totals[tier] = round(subtotal - discount, 2)
+
+    # Handle an ineligible current package if this function is called directly
+    if current_tier not in tier_totals:
+        return (
+            "The Family Bundle requires at least 4 visitors, "
+            "including at least 1 adult and 1 child."
+        )
 
     cheapest_tier = min(tier_totals, key=tier_totals.get)
     current_price = tier_totals[current_tier]
@@ -111,11 +138,17 @@ def recommend_best_deal(adult_count, child_count, current_tier, peak_type, selec
 
     if cheapest_tier != current_tier and cheapest_price < current_price:
         savings = current_price - cheapest_price
-        return f"💡 Best Deal: Switch to '{cheapest_tier}' (${cheapest_price:.2f}) to save ${savings:.2f}!"
-    
-    # Smart upsell check: if VIP is within $10 of their current choice
-    if current_tier == "Standard" and (tier_totals["VIP"] - current_price) <= 10:
-        diff = tier_totals["VIP"] - current_price
-        return f"✨ Value Tip: Upgrade to 'VIP' for just ${diff:.2f} more!"
+        return (
+            f"Best Deal: Switch to '{cheapest_tier}' "
+            f"(${cheapest_price:.2f}) to save ${savings:.2f}!"
+        )
 
-    return f"✅ You already have the best deal with '{current_tier}' (${current_price:.2f})!"
+    # Suggest a VIP upgrade when the additional cost is within $10
+    if current_tier == "Standard":
+        diff = round(tier_totals["VIP"] - current_price, 2)
+        if 0 < diff <= 10:
+            return f" Value Tip: Upgrade to 'VIP' for just ${diff:.2f} more!"
+    return (
+        f"You already have the best deal with "
+        f"'{current_tier}' (${current_price:.2f})!"
+    )

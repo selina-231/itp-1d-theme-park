@@ -28,6 +28,10 @@ for package, prices in TICKET_PRICES.items():
 
 st.table(price_rows)
 st.caption("Prices are per person, before add-ons and discounts.")
+st.caption(
+    "Family Bundle requires at least 4 visitors, "
+    "including at least 1 adult and 1 child."
+)
 
 # Ticket selection inputs
 adults = st.number_input("Number of Adults", min_value=0, value=1, step=1)
@@ -65,6 +69,16 @@ if st.button("Calculate Total & Best Deal"):
 
     if total_visitors == 0:
         st.warning("Please add at least 1 visitor to calculate pricing.")
+
+    # Check that the group qualifies for the Family Bundle
+    elif tier == "Family Bundle" and (
+        total_visitors < 4 or adults == 0 or children == 0
+    ):
+        st.warning(
+            "The Family Bundle requires at least 4 visitors, "
+            "including at least 1 adult and 1 child."
+        )
+
     else:
         # Calculate components
         base_breakdown = calculate_base_price(adults, children, tier, peak_type)
